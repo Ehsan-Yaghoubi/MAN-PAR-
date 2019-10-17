@@ -16,18 +16,42 @@ from keras.preprocessing import utils
 import matplotlib.pyplot as plt
 from keras.callbacks import ModelCheckpoint
 import pandas as pd
-from random import randrange
+from random import randint
 from keras.callbacks import Callback
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
-
+from random import random
 from keras import backend as K
 import tensorflow as tf
-import extra_keras_metrics as ekm
-import csv
-import keras_metrics as km
-from extra_keras_metrics import average_precision_at_k
-import Loss_layers as Loss
+# import extra_keras_metrics as ekm
+# import keras_metrics as km
+# from extra_keras_metrics import average_precision_at_k
 from keras import losses
+import cv2
+
+g_train_type = 'no_mask' #can take the following values: masked, no_mask
+
+assert g_train_type == 'masked' or g_train_type == 'no_mask'
+
+def preprocess_mask_make_full_ones(mask):
+    mask_preprocessed = np.copy(mask)
+    mask_preprocessed.fill(1)
+
+    mask_preprocessed = mask_preprocessed.astype(np.float32)
+    # cv2.imshow('mask', mask*255)
+    # cv2.waitKey()
+    return mask_preprocessed
+
+def preprocess_mask(mask):
+    thresh = 128
+    above_thresh = mask > thresh
+    below_thresh = mask <= thresh
+    mask[above_thresh] = 1
+    mask[below_thresh] = 0
+
+    mask = mask.astype(np.float32)
+    # cv2.imshow('mask', mask)
+    # cv2.waitKey()
+    return mask
 
 def focal_loss(y_true, y_pred):
     gamma = 2.0
@@ -207,14 +231,14 @@ def plot_training(history, layer_name, saving_name, name_dir):
     loss = history.history["{}_loss".format(layer_name)]
     val_loss = history.history["val_{}_loss".format(layer_name)]
 
-    m_precision = history.history["{}_precision".format(layer_name)]
-    val_m_precision = history.history["val_{}_precision".format(layer_name)]
-
-    m_recall = history.history["{}_recall".format(layer_name)]
-    val_m_recall = history.history["val_{}_recall".format(layer_name)]
-
-    m_f1 = history.history["{}_f1".format(layer_name)]
-    val_m_f1 = history.history["val_{}_f1".format(layer_name)]
+    # m_precision = history.history["{}_precision".format(layer_name)]
+    # val_m_precision = history.history["val_{}_precision".format(layer_name)]
+    #
+    # m_recall = history.history["{}_recall".format(layer_name)]
+    # val_m_recall = history.history["val_{}_recall".format(layer_name)]
+    #
+    # m_f1 = history.history["{}_f1".format(layer_name)]
+    # val_m_f1 = history.history["val_{}_f1".format(layer_name)]
 
 
     epochs = range(1, len(acc) + 1)
@@ -247,26 +271,26 @@ def plot_training(history, layer_name, saving_name, name_dir):
     Index_of_Best_val_acc = val_acc.index(Best_val_acc)
 
     Corresponding_val_loss = val_loss[Index_of_Best_val_acc]
-    Corresponding_val_precision = val_m_precision[Index_of_Best_val_acc]
-    Corresponding_val_recall = val_m_recall[Index_of_Best_val_acc]
-    Corresponding_val_f1 = val_m_f1[Index_of_Best_val_acc]
+    # Corresponding_val_precision = val_m_precision[Index_of_Best_val_acc]
+    # Corresponding_val_recall = val_m_recall[Index_of_Best_val_acc]
+    # Corresponding_val_f1 = val_m_f1[Index_of_Best_val_acc]
 
     Corresponding_Train_acc = acc[Index_of_Best_val_acc]
     Corresponding_Train_loss = loss[Index_of_Best_val_acc]
-    Corresponding_Train_precision = m_precision[Index_of_Best_val_acc]
-    Corresponding_Train_recall = m_recall[Index_of_Best_val_acc]
-    Corresponding_Train_f1 = m_f1[Index_of_Best_val_acc]
+    # Corresponding_Train_precision = m_precision[Index_of_Best_val_acc]
+    # Corresponding_Train_recall = m_recall[Index_of_Best_val_acc]
+    # Corresponding_Train_f1 = m_f1[Index_of_Best_val_acc]
 
 
     with open("./RESULTS/{}/RESULTS_MultiLabelClassification.txt".format(name_dir), "a+", newline='') as file_out:
         file_out.write(
             "Accuracy and Loss for {}:"
-            "\nTrain_acc: %{},\tTrain_loss: {},\tTrain_precision: %{},\tTrain_recall: %{},\tTrain_f1: %{}"
-            "\nBest_val_acc: %{},\tVal_loss: {},\tBest_val_precision: %{},\tVal_recall: %{},\tBest_val_f1: %{}"
+            "\nTrain_acc: %{},\tTrain_loss: {}"
+            "\nBest_val_acc: %{},\tVal_loss: {}"
             "\n**********\n**********\n".format(
                 layer_name+saving_name,
-                Corresponding_Train_acc * 100, Corresponding_Train_loss, Corresponding_Train_precision* 100, Corresponding_Train_recall* 100, Corresponding_Train_f1* 100,
-                Best_val_acc * 100, Corresponding_val_loss, Corresponding_val_precision* 100, Corresponding_val_recall* 100, Corresponding_val_f1* 100))
+                Corresponding_Train_acc * 100, Corresponding_Train_loss,
+                Best_val_acc * 100, Corresponding_val_loss))
 
 
 def plot_training_ALL(history, layer_name, saving_name, name_dir):
@@ -472,7 +496,7 @@ def mask_model(input_shape=(32,32,3)):
     _model_ = Model(inputs=input_mask, outputs=x, name='Mask_Model')
     return _model_,x
 
-def image_generator(Data_Frame, bs, Categories, mode="train"):
+def image_generator(Data_Frame, bs, Categories, mode="train", aug = True):
     print("Generating the images is started")
     Data_Frame.head()
     print(Data_Frame.columns)
@@ -492,6 +516,7 @@ def image_generator(Data_Frame, bs, Categories, mode="train"):
         # initialize our batches of images and labels
         images_of_this_batch = []
         masks_of_this_batch = []
+        labels = []
         personalLess30, personalLess45, personalLess60, personalLarger60, carryingBackpack , carryingOther,  \
         lowerBodyCasual, upperBodyCasual, lowerBodyFormal, upperBodyFormal, accessoryHat, upperBodyJacket ,  \
         lowerBodyJeans, footwearLeatherShoes, upperBodyLogo, hairLong, personalMale, carryingMessengerBag,    \
@@ -507,38 +532,64 @@ def image_generator(Data_Frame, bs, Categories, mode="train"):
 
         # keep looping until we reach our batch size
         while len(images_of_this_batch) < bs:
+            #print("Compliting the batch size: ", len(images_of_this_batch))
             try:
+
                 if mode == "train":
+                    #print("Training mode ...")
                     img_name = Data_Frame["Train_Filenames"][TrainImg].split("/")
                     train_image_names.append(img_name[-1])
-                    img = image.load_img(Data_Frame["Train_Filenames"][TrainImg],
+                    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), Data_Frame["Train_Filenames"][TrainImg])
+                    img = image.load_img(image_path,
                                          target_size=(500, 500))  # read in image
-                    mask = image.load_img(MASK_dir + img_name[-1], target_size=(32, 32))  # read in image
-
-                    # if aug==True:
-                    #
-                    #
-                    #     datagen = ImageDataGenerator(horizontal_flip=True,
-                    #                                  fill_mode='nearest',
-                    #                                  zoom_range=0.01,
-                    #                                  brightness_range=[0.2, 1],
-                    #                                  width_shift_range=0.08,
-                    #                                  height_shift_range=0.08,
-                    #                                  rotation_range=5)
-                    #     img = np.expand_dims(img, 0)
-                    #     mask = np.expand_dims(mask, 0)
-                    #     img = datagen.flow(x= img, batch_size=1, seed=1, save_to_dir="/media/ehsan/48BE4782BE476810/AA_MY_PYTHON_CODE/PRLetter_Paper_Light_example_Multi_Binary_classification/Scripts/Untitled Folder")
-                    #     mask = datagen.flow(x=mask, batch_size=1, seed=1, save_to_dir="/media/ehsan/48BE4782BE476810/AA_MY_PYTHON_CODE/PRLetter_Paper_Light_example_Multi_Binary_classification/Scripts/Untitled Folder")
-
+                    mask_path = os.path.join(MASK_dir , img_name[-1])
+                    mask = image.load_img(image_path, target_size=(32, 32))  # read in image
                     img = image.img_to_array(img)
                     mask = image.img_to_array(mask)
-
                     img = preprocess_input_resnet(img)
-                    mask = preprocess_input_resnet(mask)
+                    #mask = preprocess_input_resnet(mask)
+
+                    # mask preprocessing
+                    if g_train_type == 'masked':
+                        mask = preprocess_mask(mask)
+                    else:
+                        mask = preprocess_mask_make_full_ones(mask)
+
+
+                    if aug==True:
+
+                        img = np.expand_dims(img, 0)
+                        mask = np.expand_dims(mask, 0)
+                        img_datagen = ImageDataGenerator(rotation_range=6,
+                                                         width_shift_range=0.03,
+                                                         height_shift_range=0.03,
+                                                         brightness_range=[0.85,1.15],
+                                                         shear_range=0.06,
+                                                         zoom_range=0.09,
+                                                         horizontal_flip=True)
+                        msk_datagen = ImageDataGenerator(rotation_range=6,
+                                                         width_shift_range=0.03,
+                                                         height_shift_range=0.03,
+                                                         shear_range=0.06,
+                                                         zoom_range=0.09,
+                                                         horizontal_flip=True)
+                        seed = randint(0, 2**32 - 1)
+                        img = next(img_datagen.flow(x = img,
+                                              batch_size=1,
+                                              seed=seed))[0]
+                        mask = next(msk_datagen.flow(x = mask,
+                                              batch_size=1,
+                                              seed=seed))[0]
+
+                        # img = tf.image.random_flip_left_right(image= img, seed=1)
+                        # mask = tf.image.random_flip_left_right(image= mask, seed=1)
+                        # img = tf.image.random_brightness(image = img, max_delta = 0.1, seed=2)
+                        # img = tf.image.random_contrast(image= img, lower = 0.1, upper= 0.3, seed=3)
+                        # img = tf.image.random_hue(image = img, max_delta = 0.1, seed=4)
+                        # img = tf.image.random_saturation(image = img, lower = 0.1, upper= 0.3, seed=4)
 
                     images_of_this_batch.append(img)
                     masks_of_this_batch.append(mask)
-
 
                     personalLess30.append(Data_Frame[Categories[0]][TrainImg])
                     personalLess45.append(Data_Frame[Categories[1]][TrainImg])
@@ -626,7 +677,7 @@ def image_generator(Data_Frame, bs, Categories, mode="train"):
                         TrainImg += 1
 
                 elif mode=="test":
-
+                    #print("Testing mode ...")
                     img_name = Data_Frame["Test_Filenames"][TestImg].split("/")
                     test_image_names.append(img_name[-1])
                     img = image.load_img(Data_Frame["Test_Filenames"][TestImg],
@@ -730,7 +781,7 @@ def image_generator(Data_Frame, bs, Categories, mode="train"):
 
             except FileNotFoundError:
                 file_not_existed += 1
-                print("\n »» file not existed: ", file_not_existed)
+                print("\n »» file not existed: ", file_not_existed, image_path, mask_path)
 
         #print("one batch is read ...")
         yield [np.array(images_of_this_batch), np.array(masks_of_this_batch)], labels
@@ -739,11 +790,12 @@ if __name__ == "__main__":
     print("Confuguration")
     # Initialization
     input_shape = (500, 500, 3)
-    learning_rate = 0.005
-    learning_decay = 0.0005
-    Number_of_epochs = 1
-    DROPOUT_PROB = 0.5
-    BATCH_SIZE = 10
+    learning_rate = 1e-3
+    Number_of_epochs = 10
+    learning_decay = 0.5e-4
+    DROPOUT_PROB = 0.35
+    DROPOUT_PROB_CarryingTask = 0.3
+    BATCH_SIZE = 7
     RESULTS_folder = "./RESULTS/"
     Continue_training = True
 
@@ -803,6 +855,7 @@ if __name__ == "__main__":
     # Save feature maps and the M_L to inspect the effects ...
 
     M_L = KL.multiply([feature_map_of_image, feature_map_of_mask])
+    #Features = KL.GlobalAveragePooling2D()(M_L)
 
     # let's add a resnet stage and several fully connected layer for each task
     Head = conv_block(M_L, 3, [512, 512, 2048], stage=5, block='a1', train_bn=True)
@@ -857,18 +910,18 @@ if __name__ == "__main__":
     shoes = KL.Dense(64, activation='relu')(shoes)
     shoes = KL.Dropout(DROPOUT_PROB)(shoes)
 
-    Accessories = conv_block(M_L, 3, [512, 512, 2048], stage=5, block='a6', train_bn=True)
-    Accessories = identity_block(Accessories, 3, [512, 512, 2048], stage=5, block='b6', train_bn=True)
-    Accessories = identity_block(Accessories, 3, [512, 512, 2048], stage=5, block='c6', train_bn=True)
-    Accessories = KL.GlobalAveragePooling2D()(Accessories)
-    Accessories = KL.Dense(256, activation='relu')(Accessories)
-    Accessories = KL.Dropout(DROPOUT_PROB)(Accessories)
-    Accessories = KL.Dense(256, activation='relu')(Accessories)
-    Accessories = KL.Dropout(DROPOUT_PROB)(Accessories)
-    Accessories = KL.Dense(128, activation='relu')(Accessories)
-    Accessories = KL.Dropout(DROPOUT_PROB)(Accessories)
-    Accessories = KL.Dense(64, activation='relu')(Accessories)
-    Accessories = KL.Dropout(DROPOUT_PROB)(Accessories)
+    Carrying = conv_block(M_L, 3, [512, 512, 2048], stage=5, block='a6', train_bn=True)
+    Carrying = identity_block(Carrying, 3, [512, 512, 2048], stage=5, block='b6', train_bn=True)
+    Carrying = identity_block(Carrying, 3, [512, 512, 2048], stage=5, block='c6', train_bn=True)
+    Carrying = KL.GlobalAveragePooling2D()(Carrying)
+    Carrying = KL.Dense(256, activation='relu')(Carrying)
+    Carrying = KL.Dropout(DROPOUT_PROB_CarryingTask)(Carrying)
+    Carrying = KL.Dense(256, activation='relu')(Carrying)
+    Carrying = KL.Dropout(DROPOUT_PROB_CarryingTask)(Carrying)
+    Carrying = KL.Dense(128, activation='relu')(Carrying)
+    Carrying = KL.Dropout(DROPOUT_PROB_CarryingTask)(Carrying)
+    Carrying = KL.Dense(64, activation='relu')(Carrying)
+    Carrying = KL.Dropout(DROPOUT_PROB_CarryingTask)(Carrying)
 
     AgeGender = conv_block(M_L, 3, [512, 512, 2048], stage=5, block='a7', train_bn=True)
     AgeGender = identity_block(AgeGender, 3, [512, 512, 2048], stage=5, block='b7', train_bn=True)
@@ -902,100 +955,167 @@ if __name__ == "__main__":
         output_layers[i] = KL.Dense(1, activation='sigmoid', name=Categories[i])(Head)
 
     for i in [4,5,17,20,22]:
-        output_layers[i] = KL.Dense(1, activation='sigmoid', name=Categories[i])(Accessories)
+        output_layers[i] = KL.Dense(1, activation='sigmoid', name=Categories[i])(Carrying)
 
 
     model = Model(inputs=[image_model.input, mask_model.input], outputs=output_layers, name='SoftBiometrics_Model')
 
     if Continue_training:
-        model.load_weights("./RESULTS/45EPOCHS_ClassWeights/bestmodel/MultiLabel_PETA_weights.best.hdf5")
+        model.load_weights("./RESULTS/2019_09_30_21_54_43/bestmodel/MultiLabel_PETA_weights.best.hdf5")
         print(">>> Previous weights are loaded successfully")
 
     for layer in model.layers:
         layer.trainable = True
 
     def weights_for_loss(Train_data_frame):
+        ### Age
         POSETIVES_personalLess30=np.bincount(Train_data_frame["personalLess30"])[1]
         POSETIVES_personalLess45=np.bincount(Train_data_frame["personalLess45"])[1]
         POSETIVES_personalLess60=np.bincount(Train_data_frame["personalLess60"])[1]
         POSETIVES_personalLarger60=np.bincount(Train_data_frame["personalLarger60"])[1]
-        POSETIVES_carryingBackpack=np.bincount(Train_data_frame["carryingBackpack"])[1]
-        POSETIVES_carryingOther=np.bincount(Train_data_frame["carryingOther"])[1]
-        POSETIVES_lowerBodyCasual=np.bincount(Train_data_frame["lowerBodyCasual"])[1]
-        POSETIVES_upperBodyCasual=np.bincount(Train_data_frame["upperBodyCasual"])[1]
-        POSETIVES_lowerBodyFormal=np.bincount(Train_data_frame["lowerBodyFormal"])[1]
-        POSETIVES_upperBodyFormal=np.bincount(Train_data_frame["upperBodyFormal"])[1]
-        POSETIVES_accessoryHat=np.bincount(Train_data_frame["accessoryHat"])[1]
-        POSETIVES_upperBodyJacket=np.bincount(Train_data_frame["upperBodyJacket"])[1]
-        POSETIVES_lowerBodyJeans=np.bincount(Train_data_frame["lowerBodyJeans"])[1]
-        POSETIVES_footwearLeatherShoes=np.bincount(Train_data_frame["footwearLeatherShoes"])[1]
-        POSETIVES_upperBodyLogo=np.bincount(Train_data_frame["upperBodyLogo"])[1]
-        POSETIVES_hairLong=np.bincount(Train_data_frame["hairLong"])[1]
+        X_Age = 100/(1/POSETIVES_personalLess30 + 1/POSETIVES_personalLess45 + 1/POSETIVES_personalLess60 + 1/POSETIVES_personalLarger60)
+        Weight_personalLess30 = X_Age * (1/POSETIVES_personalLess30)
+        Weight_personalLess45 = X_Age * (1/POSETIVES_personalLess45)
+        Weight_personalLess60 = X_Age * (1/POSETIVES_personalLess60)
+        Weight_personalLarger60 = X_Age * (1/POSETIVES_personalLarger60)
+        ### Gender
         POSETIVES_personalMale=np.bincount(Train_data_frame["personalMale"])[1]
-        POSETIVES_carryingMessengerBag=np.bincount(Train_data_frame["carryingMessengerBag"])[1]
-        POSETIVES_accessoryMuffler=np.bincount(Train_data_frame["accessoryMuffler"])[1]
-        POSETIVES_accessoryNothing=np.bincount(Train_data_frame["accessoryNothing"])[1]
-        POSETIVES_carryingNothing=np.bincount(Train_data_frame["carryingNothing"])[1]
+        POSETIVES_personalFemale=np.bincount(Train_data_frame["personalFemale"])[1]
+        X_Gender = 100/(1/POSETIVES_personalMale + 1/POSETIVES_personalFemale)
+        Weight_personalMale = X_Gender * (1/POSETIVES_personalMale)
+        Weight_personalFemale = X_Gender * (1/POSETIVES_personalFemale)
+        ### UpperBody
+        POSETIVES_upperBodyCasual=np.bincount(Train_data_frame["upperBodyCasual"])[1]
+        POSETIVES_upperBodyFormal=np.bincount(Train_data_frame["upperBodyFormal"])[1]
+        POSETIVES_upperBodyJacket=np.bincount(Train_data_frame["upperBodyJacket"])[1]
+        POSETIVES_upperBodyLogo=np.bincount(Train_data_frame["upperBodyLogo"])[1]
         POSETIVES_upperBodyPlaid=np.bincount(Train_data_frame["upperBodyPlaid"])[1]
-        POSETIVES_carryingPlasticBags=np.bincount(Train_data_frame["carryingPlasticBags"])[1]
-        POSETIVES_footwearSandals=np.bincount(Train_data_frame["footwearSandals"])[1]
-        POSETIVES_footwearShoes=np.bincount(Train_data_frame["footwearShoes"])[1]
-        POSETIVES_lowerBodyShorts=np.bincount(Train_data_frame["lowerBodyShorts"])[1]
         POSETIVES_upperBodyShortSleeve=np.bincount(Train_data_frame["upperBodyShortSleeve"])[1]
-        POSETIVES_lowerBodyShortSkirt=np.bincount(Train_data_frame["lowerBodyShortSkirt"])[1]
-        POSETIVES_footwearSneaker=np.bincount(Train_data_frame["footwearSneaker"])[1]
         POSETIVES_upperBodyThinStripes=np.bincount(Train_data_frame["upperBodyThinStripes"])[1]
-        POSETIVES_accessorySunglasses=np.bincount(Train_data_frame["accessorySunglasses"])[1]
-        POSETIVES_lowerBodyTrousers=np.bincount(Train_data_frame["lowerBodyTrousers"])[1]
         POSETIVES_upperBodyTshirt=np.bincount(Train_data_frame["upperBodyTshirt"])[1]
         POSETIVES_upperBodyOther=np.bincount(Train_data_frame["upperBodyOther"])[1]
         POSETIVES_upperBodyVNeck=np.bincount(Train_data_frame["upperBodyVNeck"])[1]
-        POSETIVES_personalFemale=np.bincount(Train_data_frame["personalFemale"])[1]
-        weight_for_loss_vector = [100000/POSETIVES_personalLess30,
-                                  100000/POSETIVES_personalLess45,
-                                  100000/POSETIVES_personalLess60,
-                                  100000/POSETIVES_personalLarger60,
-                                  100000/POSETIVES_carryingBackpack,
-                                  100000/POSETIVES_carryingOther,
-                                  100000/POSETIVES_lowerBodyCasual,
-                                  100000/POSETIVES_upperBodyCasual,
-                                  100000/POSETIVES_lowerBodyFormal,
-                                  100000/POSETIVES_upperBodyFormal,
-                                  100000/POSETIVES_accessoryHat,
-                                  100000/POSETIVES_upperBodyJacket,
-                                  100000/POSETIVES_lowerBodyJeans,
-                                  100000/POSETIVES_footwearLeatherShoes,
-                                  100000/POSETIVES_upperBodyLogo,
-                                  100000/POSETIVES_hairLong,
-                                  100000/POSETIVES_personalMale,
-                                  100000/POSETIVES_carryingMessengerBag,
-                                  100000/POSETIVES_accessoryMuffler,
-                                  100000/POSETIVES_accessoryNothing,
-                                  100000/POSETIVES_carryingNothing,
-                                  100000/POSETIVES_upperBodyPlaid,
-                                  100000/POSETIVES_carryingPlasticBags,
-                                  100000/POSETIVES_footwearSandals,
-                                  100000/POSETIVES_footwearShoes,
-                                  100000/POSETIVES_lowerBodyShorts,
-                                  100000/POSETIVES_upperBodyShortSleeve,
-                                  100000/POSETIVES_lowerBodyShortSkirt,
-                                  100000/POSETIVES_footwearSneaker,
-                                  100000/POSETIVES_upperBodyThinStripes,
-                                  100000/POSETIVES_accessorySunglasses,
-                                  100000/POSETIVES_lowerBodyTrousers,
-                                  100000/POSETIVES_upperBodyTshirt,
-                                  100000/POSETIVES_upperBodyOther,
-                                  100000/POSETIVES_upperBodyVNeck,
-                                  100000/POSETIVES_personalFemale]
+        X_UpperBody = 100/(1/POSETIVES_upperBodyCasual+1/POSETIVES_upperBodyFormal+
+                           1/POSETIVES_upperBodyJacket+1/POSETIVES_upperBodyLogo +
+                           1/POSETIVES_upperBodyPlaid+1/POSETIVES_upperBodyShortSleeve+
+                           1/POSETIVES_upperBodyThinStripes +1/POSETIVES_upperBodyTshirt+
+                           1/POSETIVES_upperBodyOther+1/POSETIVES_upperBodyVNeck)
+        Weight_upperBodyCasual = X_UpperBody * (1/POSETIVES_upperBodyCasual)
+        Weight_upperBodyFormal = X_UpperBody * (1/POSETIVES_upperBodyFormal)
+        Weight_upperBodyJacket = X_UpperBody * (1/POSETIVES_upperBodyJacket)
+        Weight_upperBodyLogo = X_UpperBody * (1/POSETIVES_upperBodyLogo)
+        Weight_upperBodyPlaid = X_UpperBody * (1/POSETIVES_upperBodyPlaid)
+        Weight_upperBodyShortSleeve = X_UpperBody * (1/POSETIVES_upperBodyShortSleeve)
+        Weight_upperBodyThinStripes = X_UpperBody * (1/POSETIVES_upperBodyThinStripes)
+        Weight_upperBodyTshirt = X_UpperBody * (1/POSETIVES_upperBodyTshirt)
+        Weight_upperBodyOther = X_UpperBody * (1/POSETIVES_upperBodyOther)
+        Weight_upperBodyVNeck = X_UpperBody * (1/POSETIVES_upperBodyVNeck)
+        ### LowerBody
+        POSETIVES_lowerBodyCasual=np.bincount(Train_data_frame["lowerBodyCasual"])[1]
+        POSETIVES_lowerBodyFormal=np.bincount(Train_data_frame["lowerBodyFormal"])[1]
+        POSETIVES_lowerBodyJeans=np.bincount(Train_data_frame["lowerBodyJeans"])[1]
+        POSETIVES_lowerBodyShorts=np.bincount(Train_data_frame["lowerBodyShorts"])[1]
+        POSETIVES_lowerBodyShortSkirt=np.bincount(Train_data_frame["lowerBodyShortSkirt"])[1]
+        POSETIVES_lowerBodyTrousers=np.bincount(Train_data_frame["lowerBodyTrousers"])[1]
+        X_LowerBody = 100/(1/POSETIVES_lowerBodyCasual+1/POSETIVES_lowerBodyFormal+
+                           1/POSETIVES_lowerBodyJeans+1/POSETIVES_lowerBodyShorts+
+                           1/POSETIVES_lowerBodyShortSkirt+1/POSETIVES_lowerBodyTrousers)
+        Weight_lowerBodyCasual =  X_LowerBody * (1/POSETIVES_lowerBodyCasual)
+        Weight_lowerBodyFormal =  X_LowerBody * (1/POSETIVES_lowerBodyFormal)
+        Weight_lowerBodyJeans =  X_LowerBody * (1/POSETIVES_lowerBodyJeans)
+        Weight_lowerBodyShorts =  X_LowerBody * (1/POSETIVES_lowerBodyShorts)
+        Weight_lowerBodyShortSkirt =  X_LowerBody * (1/POSETIVES_lowerBodyShortSkirt)
+        Weight_lowerBodyTrousers =  X_LowerBody * (1/POSETIVES_lowerBodyTrousers)
+        ### Shoes
+        POSETIVES_footwearLeatherShoes=np.bincount(Train_data_frame["footwearLeatherShoes"])[1]
+        POSETIVES_footwearSandals=np.bincount(Train_data_frame["footwearSandals"])[1]
+        POSETIVES_footwearShoes=np.bincount(Train_data_frame["footwearShoes"])[1]
+        POSETIVES_footwearSneaker=np.bincount(Train_data_frame["footwearSneaker"])[1]
+        X_footwear = 100/(1/POSETIVES_footwearLeatherShoes+1/POSETIVES_footwearSandals+
+                          1/POSETIVES_footwearShoes+1/POSETIVES_footwearSneaker)
+        Weight_footwearLeatherShoes =  X_footwear * (1/POSETIVES_footwearLeatherShoes)
+        Weight_footwearSandals =  X_footwear * (1/POSETIVES_footwearSandals)
+        Weight_footwearShoes =  X_footwear * (1/POSETIVES_footwearShoes)
+        Weight_footwearSneaker =  X_footwear * (1/POSETIVES_footwearSneaker)
+
+        ### Head clothes and Carrying
+        POSETIVES_accessoryHat=np.bincount(Train_data_frame["accessoryHat"])[1]
+        POSETIVES_hairLong=np.bincount(Train_data_frame["hairLong"])[1]
+        POSETIVES_accessoryMuffler=np.bincount(Train_data_frame["accessoryMuffler"])[1]
+        POSETIVES_accessoryNothing=np.bincount(Train_data_frame["accessoryNothing"])[1]
+        POSETIVES_accessorySunglasses=np.bincount(Train_data_frame["accessorySunglasses"])[1]
+        X_Carrying = 100/(1/POSETIVES_accessoryHat+1/POSETIVES_hairLong+1/POSETIVES_accessoryMuffler+
+                             1/POSETIVES_accessoryNothing+1/POSETIVES_accessorySunglasses)
+        Weight_accessoryHat =  X_Carrying * (1/POSETIVES_accessoryHat)
+        Weight_hairLong =  X_Carrying * (1/POSETIVES_hairLong)
+        Weight_accessoryMuffler =  X_Carrying * (1/POSETIVES_accessoryMuffler)
+        Weight_accessoryNothing =  X_Carrying * (1/POSETIVES_accessoryNothing)
+        Weight_accessorySunglasses =  X_Carrying * (1/POSETIVES_accessorySunglasses)
+
+        ### Carrying
+        POSETIVES_carryingBackpack=np.bincount(Train_data_frame["carryingBackpack"])[1]
+        POSETIVES_carryingOther=np.bincount(Train_data_frame["carryingOther"])[1]
+        POSETIVES_carryingMessengerBag=np.bincount(Train_data_frame["carryingMessengerBag"])[1]
+        POSETIVES_carryingNothing=np.bincount(Train_data_frame["carryingNothing"])[1]
+        POSETIVES_carryingPlasticBags=np.bincount(Train_data_frame["carryingPlasticBags"])[1]
+        X_Carrying = 100/(1/POSETIVES_carryingBackpack+1/POSETIVES_carryingOther+1/POSETIVES_carryingMessengerBag+
+                          1/POSETIVES_carryingNothing+1/POSETIVES_carryingPlasticBags)
+        Weight_carryingBackpack =  X_Carrying * (1/POSETIVES_carryingBackpack)
+        Weight_carryingOther =  X_Carrying * (1/POSETIVES_carryingOther)
+        Weight_carryingMessengerBag =  X_Carrying * (1/POSETIVES_carryingMessengerBag)
+        Weight_carryingNothing =  X_Carrying * (1/POSETIVES_carryingNothing)
+        Weight_carryingPlasticBags =  X_Carrying * (1/POSETIVES_carryingPlasticBags)
+
+        weight_for_loss_vector =[Weight_personalLess30,
+                                  Weight_personalLess45,
+                                  Weight_personalLess60,
+                                  Weight_personalLarger60,
+                                  Weight_carryingBackpack,
+                                  Weight_carryingOther,
+                                  Weight_lowerBodyCasual,
+                                  Weight_upperBodyCasual,
+                                  Weight_lowerBodyFormal,
+                                  Weight_upperBodyFormal,
+                                  Weight_accessoryHat,
+                                  Weight_upperBodyJacket,
+                                  Weight_lowerBodyJeans,
+                                  Weight_footwearLeatherShoes,
+                                  Weight_upperBodyLogo,
+                                  Weight_hairLong,
+                                  Weight_personalMale,
+                                  Weight_carryingMessengerBag,
+                                  Weight_accessoryMuffler,
+                                  Weight_accessoryNothing,
+                                  Weight_carryingNothing,
+                                  Weight_upperBodyPlaid,
+                                  Weight_carryingPlasticBags,
+                                  Weight_footwearSandals,
+                                  Weight_footwearShoes,
+                                  Weight_lowerBodyShorts,
+                                  Weight_upperBodyShortSleeve,
+                                  Weight_lowerBodyShortSkirt,
+                                  Weight_footwearSneaker,
+                                  Weight_upperBodyThinStripes,
+                                  Weight_accessorySunglasses,
+                                  Weight_lowerBodyTrousers,
+                                  Weight_upperBodyTshirt,
+                                  Weight_upperBodyOther,
+                                  Weight_upperBodyVNeck,
+                                  Weight_personalFemale]
+        print(weight_for_loss_vector)
         return weight_for_loss_vector
+
+
 
     print("model compiling ...")
 
 
-
-    model.compile(optimizer=optimizers.SGD(lr=learning_rate, decay=learning_decay, momentum=0.7),
+    OPTIM = optimizers.SGD(lr=learning_rate, decay=learning_decay, momentum=0.7)
+    model.compile(optimizer=OPTIM,
                   loss='binary_crossentropy',
-                  metrics=['accuracy', ekm.false_negatives, ekm.false_positives, ekm.true_negatives, ekm.true_positives])
+                  metrics=['accuracy'])
+                  #loss='binary_crossentropy',
+                  #loss_weights=weights_for_loss(Train_df),
 
     imgdir = "/home/eshan/PycharmProjects/PRLetter_PETA/DATA/resized_imgs/"
     maskdir = "/home/eshan/PycharmProjects/PRLetter_PETA/DATA/resized_masks/"
@@ -1051,5 +1171,3 @@ if __name__ == "__main__":
     with open('Pred_matrix.csv', 'w') as writeFile:
         writer = csv.writer(writeFile)
         writer.writerows(Pred_matrix)
-
-

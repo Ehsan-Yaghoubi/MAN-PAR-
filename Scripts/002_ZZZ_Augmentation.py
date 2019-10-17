@@ -22,10 +22,36 @@ from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_
 from random import random
 from keras import backend as K
 import tensorflow as tf
-import extra_keras_metrics as ekm
-import keras_metrics as km
-from extra_keras_metrics import average_precision_at_k
+# import extra_keras_metrics as ekm
+# import keras_metrics as km
+# from extra_keras_metrics import average_precision_at_k
 from keras import losses
+import cv2
+
+g_train_type = 'no_mask' #can take the following values: masked, no_mask
+
+assert g_train_type == 'masked' or g_train_type == 'no_mask'
+
+def preprocess_mask_make_full_ones(mask):
+    mask_preprocessed = np.copy(mask)
+    mask_preprocessed.fill(1)
+
+    mask_preprocessed = mask_preprocessed.astype(np.float32)
+    # cv2.imshow('mask', mask*255)
+    # cv2.waitKey()
+    return mask_preprocessed
+
+def preprocess_mask(mask):
+    thresh = 128
+    above_thresh = mask > thresh
+    below_thresh = mask <= thresh
+    mask[above_thresh] = 1
+    mask[below_thresh] = 0
+
+    mask = mask.astype(np.float32)
+    # cv2.imshow('mask', mask)
+    # cv2.waitKey()
+    return mask
 
 def focal_loss(y_true, y_pred):
     gamma = 2.0
@@ -471,7 +497,7 @@ def mask_model(input_shape=(32,32,3)):
     return _model_,x
 
 def image_generator(Data_Frame, bs, Categories, mode="train", aug = True):
-    #print("Generating the images is started")
+    print("Generating the images is started")
     Data_Frame.head()
     print(Data_Frame.columns)
     if mode=="train":
@@ -508,17 +534,27 @@ def image_generator(Data_Frame, bs, Categories, mode="train", aug = True):
         while len(images_of_this_batch) < bs:
             #print("Compliting the batch size: ", len(images_of_this_batch))
             try:
+
                 if mode == "train":
                     #print("Training mode ...")
                     img_name = Data_Frame["Train_Filenames"][TrainImg].split("/")
                     train_image_names.append(img_name[-1])
-                    img = image.load_img(Data_Frame["Train_Filenames"][TrainImg],
+                    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), Data_Frame["Train_Filenames"][TrainImg])
+                    img = image.load_img(image_path,
                                          target_size=(500, 500))  # read in image
-                    mask = image.load_img(MASK_dir + img_name[-1], target_size=(32, 32))  # read in image
+                    mask_path = os.path.join(MASK_dir , img_name[-1])
+                    mask = image.load_img(image_path, target_size=(32, 32))  # read in image
                     img = image.img_to_array(img)
                     mask = image.img_to_array(mask)
                     img = preprocess_input_resnet(img)
-                    mask = preprocess_input_resnet(mask)
+                    #mask = preprocess_input_resnet(mask)
+
+                    # mask preprocessing
+                    if g_train_type == 'masked':
+                        mask = preprocess_mask(mask)
+                    else:
+                        mask = preprocess_mask_make_full_ones(mask)
+
 
                     if aug==True:
 
@@ -745,7 +781,7 @@ def image_generator(Data_Frame, bs, Categories, mode="train", aug = True):
 
             except FileNotFoundError:
                 file_not_existed += 1
-                print("\n »» file not existed: ", file_not_existed)
+                print("\n »» file not existed: ", file_not_existed, image_path, mask_path)
 
         #print("one batch is read ...")
         yield [np.array(images_of_this_batch), np.array(masks_of_this_batch)], labels
@@ -925,7 +961,7 @@ if __name__ == "__main__":
     model = Model(inputs=[image_model.input, mask_model.input], outputs=output_layers, name='SoftBiometrics_Model')
 
     if Continue_training:
-        model.load_weights("./RESULTS/2019_10_09_16_32_03/bestmodel/MultiLabel_PETA_weights.best.hdf5")
+        model.load_weights("./RESULTS/2019_09_30_21_54_43/bestmodel/MultiLabel_PETA_weights.best.hdf5")
         print(">>> Previous weights are loaded successfully")
 
     for layer in model.layers:

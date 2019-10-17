@@ -17,9 +17,9 @@ def show_img_(The_img_dir, The_image_labels, The_PETA_labels, show=True):
         cv2.destroyAllWindows()
 
 
-PETA_dir = "/home/eshan/PycharmProjects/PRLetter_PETA/DATA/resized_imgs/"
+PETA_dir = "../DATA/resized_imgs/"
 List_of_images = os.listdir(PETA_dir)
-Annot_mat_dir = "/home/eshan/PycharmProjects/PRLetter_PETA/DATA/PETA.mat"
+Annot_mat_dir = "../DATA/PETA.mat"
 PETA_dictionary = mat4py.loadmat(Annot_mat_dir)
 
 PETA_annotation =  PETA_dictionary["peta"]
